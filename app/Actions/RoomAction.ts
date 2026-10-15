@@ -1,8 +1,8 @@
 "use server";
 
-import { ref, set, get } from "firebase/database";
-
+import { ref, set, get,onValue} from "firebase/database";
 import db from "./FirebaseLib";
+
 async function setRoomValue(roomData: object, roomref: any): Promise<void> {
   await set(roomref, roomData);
 }
@@ -21,7 +21,7 @@ export async function CreateRoomAction(
         if (!userExits) {
           setRoomValue(
             {
-              videoId: "second",
+              videoId: "LxBdXQ7Mqck",
               isPlaying: false,
               timestamp: 0,
               lastUpdated: Date.now(),
@@ -36,7 +36,7 @@ export async function CreateRoomAction(
       } else {
         setRoomValue(
           {
-            videoId: "second",
+            videoId: "LxBdXQ7Mqck",
             isPlaying: false,
             timestamp: 0,
             lastUpdated: Date.now(),
@@ -52,11 +52,8 @@ export async function CreateRoomAction(
   return newid;
 }
 
-// export async function UpdatePlayingAction(
-//   roomId:string, newuser:string
-// ): Promise<void> {
+// export async function UpdatePlayingAction( roomId:string, newuser:string): Promise<void> {
 //   const roomRef = ref(db, `rooms/${roomId}`);
-// });
 //   onValue(roomRef, (snapshot) => {
 //     const data = snapshot.val();
 
