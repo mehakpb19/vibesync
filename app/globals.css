@@ -4,7 +4,21 @@
   --background: #ffffff;
   --foreground: #171717;
 }
+@property --border-angle {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
 
+@keyframes border-rotate {
+  to {
+    --border-angle: 360deg;
+  }
+}
+
+@theme {
+  --animate-border-spin: border-rotate 4s linear infinite;
+}
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
