@@ -6,7 +6,7 @@ export default function Login() {
   const [roomId, setRoomId] = useState("");
   const [user, setUser] = useState("");
   const [error, setError] = useState("");
-
+  
   return (
     <div className=" p-6 rounded-2xl bg-[#2a395c] flex flex-col gap-5">
       <div className="flex  flex-col">

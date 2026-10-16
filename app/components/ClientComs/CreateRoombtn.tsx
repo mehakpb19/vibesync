@@ -33,7 +33,7 @@ export default function CreateRoombtn({join, roomId , text,user,setError}:{join:
       return
     }
   router.push(`/${directRoomId}`);
-  localStorage.setItem('roomId',directRoomId);
+  localStorage.setItem('roomid',directRoomId);
   localStorage.setItem('user',user);
 
 }}
@@ -77,20 +77,15 @@ const uniqueIdGenerator = (() => {
   let counter = 0;
   
   return () => {
-    // 1. Get the last few digits of the timestamp to keep it short
-    // (This loops roughly every 27 minutes, ensuring a small number)
     const shortTime = Date.now() % 1679616; // 1679616 is 26^4
 
     
-    // 2. Increment a small counter (0-25) to handle identical millisecond hits
     counter = (counter + 1) % 26; 
     
-    // 3. Convert both to Base36 (numbers + letters)
     const timePart = shortTime.toString(36);
     const counterPart = counter.toString(36);
     
-    // 4. Combine them. Result will always be 5-6 characters long.
-    console.log(`${timePart}${counterPart}`); // e.g., "z5b9a"
+    
     return `${timePart}${counterPart}`;
   };
 })();
