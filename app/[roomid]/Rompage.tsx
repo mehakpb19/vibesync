@@ -5,12 +5,12 @@ import YouTubePlayer from "@/app/components/YoutubePlayer";
 import useRealtimeData from "@/app/Actions/RealtimedataAction";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { adduser, removeUser } from "../Actions/RoomAction";
+import { adduser, removeUser, updateIspalying } from "../Actions/RoomAction";
 
 export default function Rompage({ roomid }: { roomid: string }) {
   const router = useRouter();
   const { dataObject, loading } = useRealtimeData(roomid);
-  
+
   // Track client hydration state to prevent HTML mismatch errors
   const [isMounted, setIsMounted] = useState(false);
 
@@ -22,7 +22,7 @@ export default function Rompage({ roomid }: { roomid: string }) {
     setIsMounted(true);
 
     // Securely initialize localStorage only on the client
-    let user = localStorage.getItem('user');
+    let user = localStorage.getItem("user");
     if (!user || !localStorage.getItem("roomid")) {
       user = "user" + Math.floor(Math.random() * 1000);
       localStorage.setItem("roomid", roomid);
@@ -69,13 +69,23 @@ export default function Rompage({ roomid }: { roomid: string }) {
 
   // Prevent rendering anything until client-side hydration is complete
   if (!isMounted || loading) return <p>Loading...</p>;
-  if (!dataObject) return null;
-const usercount = dataObject.users?.length ?? 0;
-
+  if (!dataObject) {
+    localStorage.clear();
+    return null;
+  }
+  const usercount = dataObject.Users?.length ?? 0;
   return (
-    <div>
+    <div className="h-full w-full">
+      <div className="bg-black/30">
+        <h1 className="text-4xl text-blue-600 font-bold ">VibeSync</h1>
+      </div>
       <div className="flex w-[90%] justify-between items-center gap-4">
-        <YouTubePlayer videoId={dataObject.videoId} />
+        <YouTubePlayer
+          roomid={roomid}
+          videoId={dataObject.videoId}
+          startTime={dataObject.timestamp}
+          isPlaying={dataObject.isPlaying}
+        />
         {usercount}
         <Contorls />
       </div>

@@ -33,7 +33,7 @@ export default function useRealtimeData(roomId: string) {
         const val = snapshot.val();
         // Spread into a brand-new object reference so React ALWAYS re-renders
         // even when only deeply nested fields (like video time or chat) change
-        setDataObject(typeof val === "object" && val !== null ? { ...val } : val);
+        setDataObject(typeof val === "object" && val !== null ? { ...val } : val );
         setLoading(false);
       },
       (error) => {
