@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useEffect, useCallback } from "react";
+import { useMemo, useRef, useEffect, useCallback } from "react";
 import YouTube, { YouTubeProps, YouTubePlayer } from "react-youtube";
 import { updateIspalying, updateTimeStamp } from "../Actions/RoomAction";
 
@@ -11,6 +11,9 @@ const PLAYER_STATES = {
   CUED: 5,
 };
 
+// Max allowed difference in seconds (1s sync accuracy)
+const MAX_ALLOWED_DRIFT = 1.0;
+
 export default function PersonalYouTubePlayer({
   roomid,
   videoId,
@@ -22,12 +25,11 @@ export default function PersonalYouTubePlayer({
   startTime?: number;
   isPlaying: boolean;
 }) {
-  const [isMounted, setIsMounted] = useState(false);
-
   const playerRef = useRef<YouTubePlayer | null>(null);
   const logIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const isReadyRef = useRef<boolean>(false);
 
-  // Refs to always read the latest database props without recreating callbacks
+  // Refs to always read latest database props inside stable callbacks
   const startTimeRef = useRef(startTime);
   startTimeRef.current = startTime;
 
@@ -37,17 +39,13 @@ export default function PersonalYouTubePlayer({
   const roomidRef = useRef(roomid);
   roomidRef.current = roomid;
 
+  const videoIdRef = useRef(videoId);
+  videoIdRef.current = videoId;
+
   // Sync & anti-snapback refs
   const lastPlayerTimeRef = useRef<number>(startTime);
   const ignoreRemoteUntilRef = useRef<number>(0);
   const lastSentTimeRef = useRef<number>(-1);
-  // Prevents initial seekTo() on refresh from accidentally flipping DB isPlaying to true
-  const isInitializingRef = useRef<boolean>(true);
-
-  useEffect(() => {
-    const timer = setTimeout(() => setIsMounted(true), 50);
-    return () => clearTimeout(timer);
-  }, []);
 
   // 1. Static opts so the iframe never destroys itself
   const opts: YouTubeProps["opts"] = useMemo(
@@ -75,7 +73,7 @@ export default function PersonalYouTubePlayer({
 
   // 2. Dynamically control play/pause whenever DB `isPlaying` changes
   useEffect(() => {
-    if (!playerRef.current) return;
+    if (!playerRef.current || !isReadyRef.current) return;
     try {
       const internalState = playerRef.current.getPlayerState();
       if (isPlaying && internalState !== PLAYER_STATES.PLAYING) {
@@ -88,24 +86,28 @@ export default function PersonalYouTubePlayer({
     }
   }, [isPlaying]);
 
-  // 3. Receive remote timestamp updates safely without auto-playing when paused
+  // 3. Receive remote timestamp updates safely (1.0s max drift)
   useEffect(() => {
-    if (!playerRef.current || startTime <= 0) return;
+    if (!playerRef.current || !isReadyRef.current || startTime <= 0) return;
     if (Date.now() < ignoreRemoteUntilRef.current) return;
-    if (Math.abs(startTime - lastSentTimeRef.current) < 0.5) return;
+    if (Math.abs(startTime - lastSentTimeRef.current) < 0.8) return;
 
     try {
       const currentPlayerTime = playerRef.current.getCurrentTime();
       const drift = Math.abs(currentPlayerTime - startTime);
 
-      if (drift > 2.0) {
-        ignoreRemoteUntilRef.current = Date.now() + 1000;
+      if (drift > MAX_ALLOWED_DRIFT) {
+        ignoreRemoteUntilRef.current = Date.now() + 1500;
         lastPlayerTimeRef.current = startTime;
-        playerRef.current.seekTo(startTime, true);
 
-        // If the DB state is paused, keep it paused after seeking!
-        if (!isPlayingRef.current) {
-          playerRef.current.pauseVideo();
+        if (isPlayingRef.current) {
+          playerRef.current.seekTo(startTime, true);
+        } else {
+          // If paused in DB, cue at the new timestamp so it doesn't auto-play or black-screen
+          playerRef.current.cueVideoById({
+            videoId: videoIdRef.current,
+            startSeconds: startTime,
+          });
         }
       }
     } catch {
@@ -113,46 +115,74 @@ export default function PersonalYouTubePlayer({
     }
   }, [startTime]);
 
-  // 4. Respect database `isPlaying` on initial load / page refresh
+  // 4. Instantly re-sync within 1s when user comes back to the browser tab
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (
+        document.visibilityState === "visible" &&
+        playerRef.current &&
+        isReadyRef.current &&
+        startTimeRef.current > 0
+      ) {
+        try {
+          const currentPlayerTime = playerRef.current.getCurrentTime();
+          const drift = Math.abs(currentPlayerTime - startTimeRef.current);
+
+          if (drift > MAX_ALLOWED_DRIFT) {
+            ignoreRemoteUntilRef.current = Date.now() + 1500;
+            lastPlayerTimeRef.current = startTimeRef.current;
+            playerRef.current.seekTo(startTimeRef.current, true);
+          }
+
+          if (isPlayingRef.current) {
+            playerRef.current.playVideo();
+          } else {
+            playerRef.current.pauseVideo();
+          }
+        } catch {
+          // Player not ready
+        }
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, []);
+
+  // 5. Fix Black Screen on Ready + Respect DB `isPlaying` on Refresh
   const onReady: YouTubeProps["onReady"] = useCallback((event) => {
     const player = event.target;
     playerRef.current = player;
-    isInitializingRef.current = true;
+    isReadyRef.current = true;
 
-    if (startTimeRef.current > 0) {
-      lastPlayerTimeRef.current = startTimeRef.current;
-      player.seekTo(startTimeRef.current, true);
-    }
+    const initialStart = startTimeRef.current > 0 ? startTimeRef.current : 0;
+    lastPlayerTimeRef.current = initialStart;
 
-    // Dynamically check the database `isPlaying` value on load
     if (isPlayingRef.current) {
+      // DB says playing: seek and play
+      if (initialStart > 0) {
+        player.seekTo(initialStart, true);
+      }
       player.playVideo();
     } else {
-      // Because seekTo() auto-plays, explicitly pause if DB says isPlaying is false
-      player.pauseVideo();
+      // DB says paused: cue video at startTime so thumbnail shows (no black screen, no auto-play)
+      if (initialStart > 0) {
+        player.cueVideoById({
+          videoId: videoIdRef.current,
+          startSeconds: initialStart,
+        });
+      }
     }
-
-    // Release initialization lock after the initial state settles
-    setTimeout(() => {
-      isInitializingRef.current = false;
-    }, 600);
   }, []);
 
-  // 5. State change handler (Protected against initial refresh auto-play bug)
+  // 6. State change handler
   const onStateChange: YouTubeProps["onStateChange"] = useCallback(
     (event) => {
       const player = event.target;
       const currentState = event.data;
       const currentTime = player.getCurrentTime();
-
-      // While initializing on page refresh, enforce the DB `isPlaying` state
-      // instead of letting seekTo() overwrite the database with `true`
-      if (isInitializingRef.current) {
-        if (!isPlayingRef.current && currentState === PLAYER_STATES.PLAYING) {
-          player.pauseVideo();
-        }
-        return;
-      }
 
       if (currentState === PLAYER_STATES.PLAYING) {
         if (!isPlayingRef.current) {
@@ -162,13 +192,13 @@ export default function PersonalYouTubePlayer({
         if (isPlayingRef.current) {
           updateIspalying(roomidRef.current, false);
         }
-        if (Math.abs(currentTime - lastPlayerTimeRef.current) > 1.5) {
+        if (Math.abs(currentTime - lastPlayerTimeRef.current) > MAX_ALLOWED_DRIFT) {
           pushLocalTime(currentTime);
         }
       } else if (currentState === PLAYER_STATES.BUFFERING) {
         if (
           Date.now() > ignoreRemoteUntilRef.current &&
-          Math.abs(currentTime - lastPlayerTimeRef.current) > 1.5
+          Math.abs(currentTime - lastPlayerTimeRef.current) > 1.2
         ) {
           pushLocalTime(currentTime);
         }
@@ -177,30 +207,41 @@ export default function PersonalYouTubePlayer({
     [pushLocalTime]
   );
 
-  // 6. Local watcher for manual slider scrubbing
+  // 7. Continuous 500ms watcher: keeps DB live within 1s & detects slider scrubs
   const startLogging: YouTubeProps["onPlay"] = useCallback(
     (event) => {
-      // Do not start logging if the player only briefly fired onPlay during refresh while DB is false
-      if (isInitializingRef.current && !isPlayingRef.current) return;
-
       const player = event.target;
       if (logIntervalRef.current) clearInterval(logIntervalRef.current);
 
       const initialTime = player.getCurrentTime();
-      if (Math.abs(initialTime - lastPlayerTimeRef.current) > 1.5) {
+      if (
+        Date.now() > ignoreRemoteUntilRef.current &&
+        Math.abs(initialTime - lastPlayerTimeRef.current) > MAX_ALLOWED_DRIFT
+      ) {
         pushLocalTime(initialTime);
       }
       lastPlayerTimeRef.current = initialTime;
 
       logIntervalRef.current = setInterval(() => {
+        if (Date.now() < ignoreRemoteUntilRef.current) {
+          lastPlayerTimeRef.current = player.getCurrentTime();
+          return;
+        }
+
         const currentTime = player.getCurrentTime();
         const expectedTime = lastPlayerTimeRef.current + 0.5;
         const localJump = Math.abs(currentTime - expectedTime);
 
-        if (localJump > 1.5 && Date.now() > ignoreRemoteUntilRef.current) {
+        if (localJump > 1.2) {
+          // User dragged the slider
           pushLocalTime(currentTime);
         } else {
+          // Normal playback: update DB so returning users get the latest 1s timestamp
           lastPlayerTimeRef.current = currentTime;
+          if (Math.abs(currentTime - startTimeRef.current) <= 1.5) {
+            lastSentTimeRef.current = currentTime;
+            updateTimeStamp(roomidRef.current, currentTime);
+          }
         }
       }, 500);
     },
@@ -216,16 +257,17 @@ export default function PersonalYouTubePlayer({
 
   useEffect(() => {
     return () => {
+      isReadyRef.current = false;
       stopLogging();
     };
   }, [stopLogging]);
 
-  if (!isMounted) {
-    return <div className="bg-red-500 w-[640px] h-[360px] rounded-2xl" />;
+  if (!videoId) {
+    return <div className="bg-black w-[640px] h-[360px] rounded-2xl" />;
   }
 
   return (
-    <div className="bg-red-500 overflow-clip rounded-2xl">
+    <div className="bg-black overflow-clip rounded-2xl">
       <YouTube
         videoId={videoId}
         opts={opts}
