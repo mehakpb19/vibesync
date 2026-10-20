@@ -53,7 +53,7 @@ export default function PersonalYouTubePlayer({
       height: "360",
       width: "640",
       playerVars: {
-        autoplay: 0,
+        autoplay: 1,
         controls: 1,
         modestbranding: 1,
         iv_load_policy: 3,

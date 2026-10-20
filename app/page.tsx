@@ -10,29 +10,3 @@ export default function Page() {
   }, []);
   return <></>;
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-// export default function page() {
-//   const YouTube = require("youtube-sr").default;
-
-//   async function searchVideos() {
-//     const results = await YouTube.search("JavaScript tutorial", { limit: 5 });
-//     console.log(results[1]);
-//   }
-
-//   searchVideos();
-
-//   return <div></div>;
-// }

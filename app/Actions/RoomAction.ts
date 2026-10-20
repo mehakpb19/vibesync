@@ -25,7 +25,7 @@ export async function CreateRoomAction(
         setRoomValue(
           {
             videoId: "ANkxRGvl1VY",
-            isPlaying: false,
+            isPlaying: true,
             timestamp: 0,
             lastUpdated: Date.now(),
             Users: [user],
@@ -93,13 +93,26 @@ export async function updateIspalying(roomId: string, isPaused: boolean) {
     throw error;
   }
 }
-export async function updateTimeStamp(roomId: string,curentTime: number) {
+export async function updateTimeStamp(roomId: string, curentTime: number) {
   const roomRef = ref(db, `rooms/${roomId}`);
   try {
     const snapshot = await get(roomRef);
     if (snapshot.exists()) {
-      await update(roomRef, { timestamp
-: curentTime });
+      await update(roomRef, { timestamp: curentTime });
+    }
+  } catch (error) {
+    console.error("Failed to add user to room:", error);
+    throw error;
+  }
+}
+
+export async function UpdatePlay(roomId: string, ytId: string) {
+  console.log(roomId)
+  const roomRef = ref(db, `rooms/${roomId}`);
+  try {
+    const snapshot = await get(roomRef);
+    if (snapshot.exists()) {
+      await update(roomRef, { videoId: ytId, isPlaying: true });
     }
   } catch (error) {
     console.error("Failed to add user to room:", error);

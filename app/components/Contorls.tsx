@@ -3,11 +3,11 @@
 import { useState } from "react";
 import YtSearch from "./ClientComs/YtSearch";
 
-export default function Contorls() {
+export default function Contorls({roomId}:{roomId:string}) {
   const [tab, setTab] = useState("Youtube");
 
   return (
-    <div className="flex flex-col overflow-clip bg-slate-800/80 w-100 rounded-2xl">
+    <div className="h-90 flex flex-col overflow-clip bg-slate-800/80 w-100 rounded-2xl">
       {/* button */}
       <div className=" relative w-full flex flex-wrap p-1 text-sm bg-[#0F172A] rounded-lg shadow-[0_0_0_1px_rgba(0,0,0,0.06)] box-border">
         <label className="flex-1 text-center cursor-pointer">
@@ -55,8 +55,8 @@ export default function Contorls() {
       </div>
 
       {/* Content */}
-      <div className="h-full">
-        {(tab == "Youtube" && <YtSearch/>) ||
+      <div className="min-h-0 grow">
+        {(tab == "Youtube" && <YtSearch roomId={roomId} />) ||
           (tab == "Queue" && <div>2</div>) ||
           (tab == "Chat" && <div>1</div>)}
       </div>

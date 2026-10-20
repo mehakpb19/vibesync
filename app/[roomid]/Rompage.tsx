@@ -91,14 +91,14 @@ export default function Rompage({ roomid }: { roomid: string }) {
       </div>
 
       <div className="h-full w-full flex justify-center items-center gap-4 bg-[linear-gradient(180deg,rgba(20,33,55,0.84)_0%,rgba(255,255,255,0)_50%)]">
-        <div className="flex gap-10">
+        <div className="flex h-90 gap-10">
           <YouTubePlayer
           roomid={roomid}
           videoId={dataObject.videoId}
           startTime={dataObject.timestamp}
           isPlaying={dataObject.isPlaying}
         />
-        <Contorls />
+        <Contorls roomId={roomid} />
         </div>
       </div>
     </div>
