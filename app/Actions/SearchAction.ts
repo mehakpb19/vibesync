@@ -32,7 +32,7 @@ export default async function searchYouTube(query: string) {
   }
 }
 
-export async function NextpagesearchYouTube(token: object) {
+export async function NextpagesearchYouTube(token: any) {
   try {
     const response = await youtubesearchapi.NextPage(token.nextPage, false, 40);
     if (response && Array.isArray(response.items)) {

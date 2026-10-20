@@ -14,8 +14,8 @@ export default function YtSearch({ roomId }: { roomId: string }) {
 
 
   const [input, setInput] = useState("");
-  const [result, setResult] = useState([]);
-  const [res, setRes] = useState({});
+  const [result, setResult] = useState<any>([]);
+  const [res, setRes] = useState<any>({});
   const [isloading, setIsloading] = useState(false);
   const debouncedSearchTerm = useDebounce(input, 500);
 
@@ -30,7 +30,7 @@ export default function YtSearch({ roomId }: { roomId: string }) {
       setIsloading(true);
       const newres = await NextpagesearchYouTube(res);
       setRes(newres);
-      setResult((prevItems) => [...prevItems, ...(newres?.items || [])]);
+      setResult((prevItems:any):any => [...prevItems, ...(newres?.items || [])]);
       setIsloading(false);
     }
   };
@@ -65,7 +65,7 @@ export default function YtSearch({ roomId }: { roomId: string }) {
         className="h-90 overflow-y-auto p-2 [&::-webkit-scrollbar]:w-0 items-center flex flex-col"
         onScroll={handleScroll}
       >
-        {result.map((e, i) => (
+        {result.map((e:any, i:any) => (
           <button
             onClick={() => {
               UpdatePlay(roomId, e.id);
