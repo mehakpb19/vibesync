@@ -94,15 +94,8 @@ export default function Rompage({ roomid }: { roomid: string }) {
       />
       <div className=" px-3 justify-between flex h-21 bg-[linear-gradient(180deg,rgba(255,255,255,0)_-25%,rgba(20,33,55,0.84)_100%)] border-b border-cyan-200">
         <div className="leading-0">
-          <h1 className="text-4xl text-cyan-200 font-bold pt-2  ">VibeSync</h1>
+          <h1 className="text-2xl md:text-4xl text-cyan-200 font-bold pt-2  ">VibeSync</h1>
           <div className="flex items-center justify-between">
-            <p className="text-white/80 text-[14px] pl-2">
-              <span className="font-semibold">
-                {localStorage.getItem("user")}'
-              </span>{" "}
-              Room{" "}
-            </p>
-
             <UserCounter usercount={usercount} />
           </div>
         </div>
@@ -113,9 +106,9 @@ export default function Rompage({ roomid }: { roomid: string }) {
               await navigator.clipboard.writeText(roomid);
               toast.success("Wow so easy!");
             }}
-            className="bg-gradient-to-r active:-translate-y-0 hover:-translate-y-1.5 duration-500 to-[#216af2] via-[#4097e9] from-[#23838a] p-1.5 flex text-1xl items-center rounded-lg -translate-y-1 gap-2 h-fit"
+            className="sm: p-2 bg-gradient-to-r active:-translate-y-0 hover:-translate-y-1.5 duration-500 to-[#216af2] via-[#4097e9] from-[#23838a] flex text-1xl items-center rounded-lg -translate-y-1 h-fit"
           >
-            <FaRegCopy size={20} /> Copy RoomId
+           Copy RoomId
           </button>
           <Exitbtn />
         </div>

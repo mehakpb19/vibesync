@@ -50,11 +50,11 @@ export default function PersonalYouTubePlayer({
   const ignoreRemoteUntilRef = useRef<number>(0);
   const lastSentTimeRef = useRef<number>(-1);
 
-  // 1. Static opts so the iframe never destroys itself
+  // 1. Set width and height to 100% so the iframe fills its responsive container
   const opts: YouTubeProps["opts"] = useMemo(
     () => ({
-      height: "360",
-      width: "640",
+      height: "100%",
+      width: "100%",
       playerVars: {
         autoplay: 1,
         controls: 1,
@@ -62,6 +62,7 @@ export default function PersonalYouTubePlayer({
         iv_load_policy: 3,
         cc_load_policy: 0,
         fs: 1,
+        playsinline: 1, // Crucial for mobile: prevents iOS from forcing fullscreen automatically
       },
     }),
     [],
@@ -187,17 +188,22 @@ export default function PersonalYouTubePlayer({
     [pushLocalTime],
   );
 
+  // Responsive fallback when no videoId is present
   if (!videoId) {
-    return <div className="bg-black w-160 h-90 rounded-2xl" />;
+    return (
+      <div className="bg-black w-full max-w-4xl mx-auto aspect-video rounded-xl md:rounded-2xl shadow-lg" />
+    );
   }
 
   return (
-    <div className="bg-black overflow-clip rounded-2xl">
+    <div className="relative bg-black w-full max-w-4xl mx-auto aspect-video overflow-hidden rounded-xl md:rounded-2xl shadow-lg">
       <YouTube
         videoId={videoId}
         opts={opts}
         onReady={onReady}
         onStateChange={onStateChange}
+        className="absolute inset-0 w-full h-full"
+        iframeClassName="w-full h-full border-0"
       />
     </div>
   );
