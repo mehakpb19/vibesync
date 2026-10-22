@@ -1,5 +1,9 @@
 import { useMemo, useRef, useEffect, useCallback } from "react";
-import YouTube, { YouTubeProps, YouTubePlayer } from "react-youtube";
+import YouTube, {
+  YouTubeProps,
+  YouTubePlayer,
+  YouTubeEvent,
+} from "react-youtube";
 import { updateIspalying, updateTimeStamp } from "../Actions/RoomAction";
 
 const PLAYER_STATES = {
@@ -61,7 +65,7 @@ export default function PersonalYouTubePlayer({
         fs: 1,
       },
     }),
-    []
+    [],
   );
 
   const pushLocalTime = useCallback((time: number) => {
@@ -152,34 +156,37 @@ export default function PersonalYouTubePlayer({
   }, []);
 
   // 5. Fix Black Screen on Ready + Respect DB `isPlaying` on Refresh
-  const onReady: YouTubeProps["onReady"] = useCallback((event) => {
-    const player = event.target;
-    playerRef.current = player;
-    isReadyRef.current = true;
+  const onReady: YouTubeProps["onReady"] = useCallback(
+    (event: YouTubeEvent) => {
+      const player = event.target;
+      playerRef.current = player;
+      isReadyRef.current = true;
 
-    const initialStart = startTimeRef.current > 0 ? startTimeRef.current : 0;
-    lastPlayerTimeRef.current = initialStart;
+      const initialStart = startTimeRef.current > 0 ? startTimeRef.current : 0;
+      lastPlayerTimeRef.current = initialStart;
 
-    if (isPlayingRef.current) {
-      // DB says playing: seek and play
-      if (initialStart > 0) {
-        player.seekTo(initialStart, true);
+      if (isPlayingRef.current) {
+        // DB says playing: seek and play
+        if (initialStart > 0) {
+          player.seekTo(initialStart, true);
+        }
+        player.playVideo();
+      } else {
+        // DB says paused: cue video at startTime so thumbnail shows (no black screen, no auto-play)
+        if (initialStart > 0) {
+          player.cueVideoById({
+            videoId: videoIdRef.current,
+            startSeconds: initialStart,
+          });
+        }
       }
-      player.playVideo();
-    } else {
-      // DB says paused: cue video at startTime so thumbnail shows (no black screen, no auto-play)
-      if (initialStart > 0) {
-        player.cueVideoById({
-          videoId: videoIdRef.current,
-          startSeconds: initialStart,
-        });
-      }
-    }
-  }, []);
+    },
+    [],
+  );
 
   // 6. State change handler
   const onStateChange: YouTubeProps["onStateChange"] = useCallback(
-    (event) => {
+    (event: YouTubeEvent) => {
       const player = event.target;
       const currentState = event.data;
       const currentTime = player.getCurrentTime();
@@ -192,7 +199,9 @@ export default function PersonalYouTubePlayer({
         if (isPlayingRef.current) {
           updateIspalying(roomidRef.current, false);
         }
-        if (Math.abs(currentTime - lastPlayerTimeRef.current) > MAX_ALLOWED_DRIFT) {
+        if (
+          Math.abs(currentTime - lastPlayerTimeRef.current) > MAX_ALLOWED_DRIFT
+        ) {
           pushLocalTime(currentTime);
         }
       } else if (currentState === PLAYER_STATES.BUFFERING) {
@@ -204,12 +213,12 @@ export default function PersonalYouTubePlayer({
         }
       }
     },
-    [pushLocalTime]
+    [pushLocalTime],
   );
 
   // 7. Continuous 500ms watcher: keeps DB live within 1s & detects slider scrubs
   const startLogging: YouTubeProps["onPlay"] = useCallback(
-    (event) => {
+    (event: YouTubeEvent) => {
       const player = event.target;
       if (logIntervalRef.current) clearInterval(logIntervalRef.current);
 
@@ -245,7 +254,7 @@ export default function PersonalYouTubePlayer({
         }
       }, 500);
     },
-    [pushLocalTime]
+    [pushLocalTime],
   );
 
   const stopLogging = useCallback(() => {
@@ -263,7 +272,7 @@ export default function PersonalYouTubePlayer({
   }, [stopLogging]);
 
   if (!videoId) {
-    return <div className="bg-black w-[640px] h-[360px] rounded-2xl" />;
+    return <div className="bg-black w-160 h-90 rounded-2xl" />;
   }
 
   return (

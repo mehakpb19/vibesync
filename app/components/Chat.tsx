@@ -6,7 +6,7 @@ import { Getmsg, Postmsg } from "../Actions/ChatAction";
 
 export default function Chat({ roomId }: { roomId: string }) {
   const { dataObject } = Getmsg(roomId);
-  const user = localStorage.getItem("user");
+  const user: string = localStorage.getItem("user")??''; 
   const [input, setInput] = useState("");
   return (
     <div className="flex h-full w-full flex-col overflow-hidden">
