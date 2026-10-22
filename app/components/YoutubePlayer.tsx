@@ -30,7 +30,6 @@ export default function PersonalYouTubePlayer({
   isPlaying: boolean;
 }) {
   const playerRef = useRef<YouTubePlayer | null>(null);
-  const logIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const isReadyRef = useRef<boolean>(false);
 
   // Refs to always read latest database props inside stable callbacks
@@ -81,8 +80,10 @@ export default function PersonalYouTubePlayer({
     try {
       const internalState = playerRef.current.getPlayerState();
       if (isPlaying && internalState !== PLAYER_STATES.PLAYING) {
+        ignoreRemoteUntilRef.current = Date.now() + 1000;
         playerRef.current.playVideo();
       } else if (!isPlaying && internalState === PLAYER_STATES.PLAYING) {
+        ignoreRemoteUntilRef.current = Date.now() + 1000;
         playerRef.current.pauseVideo();
       }
     } catch {
@@ -92,7 +93,7 @@ export default function PersonalYouTubePlayer({
 
   // 3. Receive remote timestamp updates safely (1.0s max drift)
   useEffect(() => {
-    if (!playerRef.current || !isReadyRef.current || startTime <= 0) return;
+    if (!playerRef.current || !isReadyRef.current || startTime < 0) return;
     if (Date.now() < ignoreRemoteUntilRef.current) return;
     if (Math.abs(startTime - lastSentTimeRef.current) < 0.8) return;
 
@@ -119,43 +120,7 @@ export default function PersonalYouTubePlayer({
     }
   }, [startTime]);
 
-  // 4. Instantly re-sync within 1s when user comes back to the browser tab
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (
-        document.visibilityState === "visible" &&
-        playerRef.current &&
-        isReadyRef.current &&
-        startTimeRef.current > 0
-      ) {
-        try {
-          const currentPlayerTime = playerRef.current.getCurrentTime();
-          const drift = Math.abs(currentPlayerTime - startTimeRef.current);
-
-          if (drift > MAX_ALLOWED_DRIFT) {
-            ignoreRemoteUntilRef.current = Date.now() + 1500;
-            lastPlayerTimeRef.current = startTimeRef.current;
-            playerRef.current.seekTo(startTimeRef.current, true);
-          }
-
-          if (isPlayingRef.current) {
-            playerRef.current.playVideo();
-          } else {
-            playerRef.current.pauseVideo();
-          }
-        } catch {
-          // Player not ready
-        }
-      }
-    };
-
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    return () => {
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-    };
-  }, []);
-
-  // 5. Fix Black Screen on Ready + Respect DB `isPlaying` on Refresh
+  // 4. Fix Black Screen on Ready + Respect DB `isPlaying` on Refresh
   const onReady: YouTubeProps["onReady"] = useCallback(
     (event: YouTubeEvent) => {
       const player = event.target;
@@ -166,13 +131,11 @@ export default function PersonalYouTubePlayer({
       lastPlayerTimeRef.current = initialStart;
 
       if (isPlayingRef.current) {
-        // DB says playing: seek and play
         if (initialStart > 0) {
           player.seekTo(initialStart, true);
         }
         player.playVideo();
       } else {
-        // DB says paused: cue video at startTime so thumbnail shows (no black screen, no auto-play)
         if (initialStart > 0) {
           player.cueVideoById({
             videoId: videoIdRef.current,
@@ -184,16 +147,27 @@ export default function PersonalYouTubePlayer({
     [],
   );
 
-  // 6. State change handler
+  // 5. State change handler (updates ONLY on Play, Pause, or Seek/Jump)
   const onStateChange: YouTubeProps["onStateChange"] = useCallback(
     (event: YouTubeEvent) => {
       const player = event.target;
       const currentState = event.data;
       const currentTime = player.getCurrentTime();
 
+      if (Date.now() < ignoreRemoteUntilRef.current) {
+        lastPlayerTimeRef.current = currentTime;
+        return;
+      }
+
       if (currentState === PLAYER_STATES.PLAYING) {
         if (!isPlayingRef.current) {
           updateIspalying(roomidRef.current, true);
+          pushLocalTime(currentTime);
+        } else if (
+          Math.abs(currentTime - lastPlayerTimeRef.current) > MAX_ALLOWED_DRIFT
+        ) {
+          // Caught a seek/jump that finished and resumed playing
+          pushLocalTime(currentTime);
         }
       } else if (currentState === PLAYER_STATES.PAUSED) {
         if (isPlayingRef.current) {
@@ -205,71 +179,13 @@ export default function PersonalYouTubePlayer({
           pushLocalTime(currentTime);
         }
       } else if (currentState === PLAYER_STATES.BUFFERING) {
-        if (
-          Date.now() > ignoreRemoteUntilRef.current &&
-          Math.abs(currentTime - lastPlayerTimeRef.current) > 1.2
-        ) {
+        if (Math.abs(currentTime - lastPlayerTimeRef.current) > 1.2) {
           pushLocalTime(currentTime);
         }
       }
     },
     [pushLocalTime],
   );
-
-  // 7. Continuous 500ms watcher: keeps DB live within 1s & detects slider scrubs
-  const startLogging: YouTubeProps["onPlay"] = useCallback(
-    (event: YouTubeEvent) => {
-      const player = event.target;
-      if (logIntervalRef.current) clearInterval(logIntervalRef.current);
-
-      const initialTime = player.getCurrentTime();
-      if (
-        Date.now() > ignoreRemoteUntilRef.current &&
-        Math.abs(initialTime - lastPlayerTimeRef.current) > MAX_ALLOWED_DRIFT
-      ) {
-        pushLocalTime(initialTime);
-      }
-      lastPlayerTimeRef.current = initialTime;
-
-      logIntervalRef.current = setInterval(() => {
-        if (Date.now() < ignoreRemoteUntilRef.current) {
-          lastPlayerTimeRef.current = player.getCurrentTime();
-          return;
-        }
-
-        const currentTime = player.getCurrentTime();
-        const expectedTime = lastPlayerTimeRef.current + 0.5;
-        const localJump = Math.abs(currentTime - expectedTime);
-
-        if (localJump > 1.2) {
-          // User dragged the slider
-          pushLocalTime(currentTime);
-        } else {
-          // Normal playback: update DB so returning users get the latest 1s timestamp
-          lastPlayerTimeRef.current = currentTime;
-          if (Math.abs(currentTime - startTimeRef.current) <= 1.5) {
-            lastSentTimeRef.current = currentTime;
-            updateTimeStamp(roomidRef.current, currentTime);
-          }
-        }
-      }, 500);
-    },
-    [pushLocalTime],
-  );
-
-  const stopLogging = useCallback(() => {
-    if (logIntervalRef.current) {
-      clearInterval(logIntervalRef.current);
-      logIntervalRef.current = null;
-    }
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      isReadyRef.current = false;
-      stopLogging();
-    };
-  }, [stopLogging]);
 
   if (!videoId) {
     return <div className="bg-black w-160 h-90 rounded-2xl" />;
@@ -280,9 +196,6 @@ export default function PersonalYouTubePlayer({
       <YouTube
         videoId={videoId}
         opts={opts}
-        onPlay={startLogging}
-        onPause={stopLogging}
-        onEnd={stopLogging}
         onReady={onReady}
         onStateChange={onStateChange}
       />
