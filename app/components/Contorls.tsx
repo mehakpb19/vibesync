@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import YtSearch from "./ClientComs/YtSearch";
+import Chat from "./Chat";
 
 export default function Contorls({roomId}:{roomId:string}) {
   const [tab, setTab] = useState("Youtube");
@@ -28,20 +29,6 @@ export default function Contorls({roomId}:{roomId:string}) {
         <label className="flex-1 text-center cursor-pointer">
           <input
             onClick={(e) => {
-              setTab("Queue");
-            }}
-            type="radio"
-            name="radio"
-            className="peer hidden"
-          />
-          <span className="flex items-center justify-center py-2 text-slate-400 peer-checked:text-slate-800/80 rounded-lg transition-all duration-300 ease-in-out peer-checked:bg-white peer-checked:font-semibold ">
-            Queue
-          </span>
-        </label>
-
-        <label className="flex-1 text-center cursor-pointer">
-          <input
-            onClick={(e) => {
               setTab("Chat");
             }}
             type="radio"
@@ -57,8 +44,7 @@ export default function Contorls({roomId}:{roomId:string}) {
       {/* Content */}
       <div className="min-h-0 grow">
         {(tab == "Youtube" && <YtSearch roomId={roomId} />) ||
-          (tab == "Queue" && <div>2</div>) ||
-          (tab == "Chat" && <div>1</div>)}
+          (tab == "Chat" && <Chat roomId={roomId}/>)}
       </div>
     </div>
   );

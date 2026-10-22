@@ -9,7 +9,7 @@ import { adduser, removeUser, updateIspalying } from "../Actions/RoomAction";
 import Exitbtn from "@/app/components/ClientComs/Exitbtn";
 import UserCounter from "./../components/ClientComs/UserCounter";
 import { FaRegCopy } from "react-icons/fa6";
-
+import { ToastContainer, Zoom, toast } from "react-toastify";
 export default function Rompage({ roomid }: { roomid: string }) {
   const router = useRouter();
   const { dataObject, loading } = useRealtimeData(roomid);
@@ -34,12 +34,10 @@ export default function Rompage({ roomid }: { roomid: string }) {
 
     const addtheuser = () => {
       adduser(roomid, user);
-      console.log("added user:", user);
     };
 
     const removetheuser = () => {
       removeUser(roomid, user);
-      console.log("Removing user:", user);
     };
 
     // Strict Mode / Re-mount Protection logic
@@ -78,6 +76,19 @@ export default function Rompage({ roomid }: { roomid: string }) {
   const usercount = dataObject.Users?.length ?? 0;
   return (
     <div className="h-full w-full flex justify-center flex-col">
+      <ToastContainer
+        position="bottom-center"
+        autoClose={2000}
+        newestOnTop={false}
+        closeOnClick
+        rtl={false}
+        pauseOnFocusLoss
+        limit={1}
+        draggable
+        pauseOnHover={false}
+        theme="dark"
+        transition={Zoom}
+      />
       <div className=" px-3 justify-between flex h-21 bg-[linear-gradient(180deg,rgba(255,255,255,0)_-25%,rgba(20,33,55,0.84)_100%)] border-b border-cyan-200">
         <div className="leading-0">
           <h1 className="text-4xl text-cyan-200 font-bold pt-2  ">VibeSync</h1>
@@ -92,11 +103,17 @@ export default function Rompage({ roomid }: { roomid: string }) {
             <UserCounter usercount={usercount} />
           </div>
         </div>
-        
+
         <div className="h-full flex items-center gap-4">
-          <button onClick={async()=>{
-            await navigator.clipboard.writeText(roomid);
-          }} className="bg-gradient-to-r active:-translate-y-0 hover:-translate-y-1.5 duration-500 to-[#216af2] via-[#4097e9] from-[#23838a] p-1.5 flex text-1xl items-center rounded-lg -translate-y-1 h-fit"><FaRegCopy /> copy RoomId</button>
+          <button
+            onClick={async () => {
+              await navigator.clipboard.writeText(roomid);
+              toast.success("Wow so easy!");
+            }}
+            className="bg-gradient-to-r active:-translate-y-0 hover:-translate-y-1.5 duration-500 to-[#216af2] via-[#4097e9] from-[#23838a] p-1.5 flex text-1xl items-center rounded-lg -translate-y-1 gap-2 h-fit"
+          >
+            <FaRegCopy size={20} /> Copy RoomId
+          </button>
           <Exitbtn />
         </div>
       </div>

@@ -24,6 +24,7 @@ export async function CreateRoomAction(
       } else {
         setRoomValue(
           {
+            
             videoId: "ANkxRGvl1VY",
             isPlaying: true,
             timestamp: 0,
@@ -107,7 +108,6 @@ export async function updateTimeStamp(roomId: string, curentTime: number) {
 }
 
 export async function UpdatePlay(roomId: string, ytId: string) {
-  console.log(roomId)
   const roomRef = ref(db, `rooms/${roomId}`);
   try {
     const snapshot = await get(roomRef);
