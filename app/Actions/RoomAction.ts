@@ -6,56 +6,48 @@ import db from "./FirebaseLib";
 async function setRoomValue(roomData: object, roomref: any): Promise<void> {
   await set(roomref, roomData);
 }
+
 export async function CreateRoomAction(
   roomId: string,
   user: string,
 ): Promise<string> {
   let newid = roomId;
   const roomRef = ref(db, `rooms/${roomId}`);
-  await get(roomRef)
-    .then((snapshot) => {
-      if (snapshot.exists()) {
-        const Users = snapshot.val().Users;
-        Users.push(user);
-        const userExits = snapshot.val().users.includes(user);
-        if (userExits) {
-          newid = "DONTGO";
-        }
-      } else {
-        setRoomValue(
-          {
-            
-            videoId: "ANkxRGvl1VY",
-            isPlaying: true,
-            timestamp: 0,
-            lastUpdated: Date.now(),
-            Users: [user],
-          },
-          roomRef,
-        );
+  try {
+    const snapshot = await get(roomRef);
+    if (snapshot.exists()) {
+      const val = snapshot.val();
+      const existingUsers: string[] = val.Users || val.users || [];
+      if (existingUsers.includes(user)) {
+        newid = "DONTGO";
       }
-    })
-    .catch((error) => {
-      console.error(error);
-    });
+    } else {
+      await setRoomValue(
+        {
+          videoId: "ANkxRGvl1VY",
+          isPlaying: true,
+          timestamp: 0,
+          lastUpdated: Date.now(),
+          Users: [user],
+        },
+        roomRef,
+      );
+    }
+  } catch (error) {
+    console.error(error);
+  }
   return newid;
 }
 
 export async function adduser(roomId: string, user: string) {
   const roomRef = ref(db, `rooms/${roomId}`);
-
   try {
     const snapshot = await get(roomRef);
-
     if (snapshot.exists()) {
       const data = snapshot.val();
       const users = data.Users || [];
-
-      // 1. Check for existence before modifying the array
       if (!users.includes(user)) {
         users.push(user);
-
-        // 2. Use update() to target only the specific field, avoiding overwriting other data
         await update(roomRef, { Users: users });
       }
     }
@@ -71,8 +63,6 @@ export async function removeUser(roomId: string, user: string) {
     await runTransaction(roomRef, (currentData) => {
       if (currentData) {
         const users = currentData.Users || [];
-
-        // Filter out the user to be removed
         currentData.Users = users.filter((e: string) => e !== user);
       }
       return currentData;
@@ -82,40 +72,57 @@ export async function removeUser(roomId: string, user: string) {
     throw error;
   }
 }
-export async function updateIspalying(roomId: string, isPaused: boolean) {
+
+// Single atomic update for Play/Pause + Timestamp together
+export async function syncPlayerState(
+  roomId: string,
+  isPlaying: boolean,
+  currentTime?: number,
+) {
   const roomRef = ref(db, `rooms/${roomId}`);
   try {
-    const snapshot = await get(roomRef);
-    if (snapshot.exists()) {
-      await update(roomRef, { isPlaying: isPaused });
+    const payload: Record<string, any> = {
+      isPlaying,
+      lastUpdated: Date.now(),
+    };
+    if (typeof currentTime === "number") {
+      payload.timestamp = currentTime;
     }
+    await update(roomRef, payload);
   } catch (error) {
-    console.error("Failed to add user to room:", error);
-    throw error;
+    console.error("Failed to sync player state:", error);
   }
 }
-export async function updateTimeStamp(roomId: string, curentTime: number) {
+
+export async function updateIspalying(roomId: string, isPlaying: boolean) {
   const roomRef = ref(db, `rooms/${roomId}`);
   try {
-    const snapshot = await get(roomRef);
-    if (snapshot.exists()) {
-      await update(roomRef, { timestamp: curentTime });
-    }
+    await update(roomRef, { isPlaying, lastUpdated: Date.now() });
   } catch (error) {
-    console.error("Failed to add user to room:", error);
-    throw error;
+    console.error("Failed to update isPlaying:", error);
+  }
+}
+
+export async function updateTimeStamp(roomId: string, currentTime: number) {
+  const roomRef = ref(db, `rooms/${roomId}`);
+  try {
+    await update(roomRef, { timestamp: currentTime, lastUpdated: Date.now() });
+  } catch (error) {
+    console.error("Failed to update timestamp:", error);
   }
 }
 
 export async function UpdatePlay(roomId: string, ytId: string) {
   const roomRef = ref(db, `rooms/${roomId}`);
   try {
-    const snapshot = await get(roomRef);
-    if (snapshot.exists()) {
-      await update(roomRef, { videoId: ytId, isPlaying: true });
-    }
+    await update(roomRef, {
+      videoId: ytId,
+      isPlaying: true,
+      timestamp: 0,
+      lastUpdated: Date.now(),
+    });
   } catch (error) {
-    console.error("Failed to add user to room:", error);
+    console.error("Failed to update video:", error);
     throw error;
   }
 }

@@ -1,10 +1,12 @@
+"use client";
+
 import { useMemo, useRef, useEffect, useCallback } from "react";
 import YouTube, {
   YouTubeProps,
   YouTubePlayer,
   YouTubeEvent,
 } from "react-youtube";
-import { updateIspalying, updateTimeStamp } from "../Actions/RoomAction";
+import { syncPlayerState, updateTimeStamp } from "../Actions/RoomAction";
 
 const PLAYER_STATES = {
   UNSTARTED: -1,
@@ -15,8 +17,7 @@ const PLAYER_STATES = {
   CUED: 5,
 };
 
-// Max allowed difference in seconds (1s sync accuracy)
-const MAX_ALLOWED_DRIFT = 1.0;
+const MAX_ALLOWED_DRIFT = 1.5;
 
 export default function PersonalYouTubePlayer({
   roomid,
@@ -45,34 +46,48 @@ export default function PersonalYouTubePlayer({
   const videoIdRef = useRef(videoId);
   videoIdRef.current = videoId;
 
-  // Sync & anti-snapback refs
+  // Sync & anti-echo refs
   const lastPlayerTimeRef = useRef<number>(startTime);
-  const ignoreRemoteUntilRef = useRef<number>(0);
+  const isApplyingRemoteRef = useRef<boolean>(false);
+  const remoteLockTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const lastSentTimeRef = useRef<number>(-1);
 
-  // 1. Set width and height to 100% so the iframe fills its responsive container
+  const lockRemoteAction = useCallback((durationMs = 1000) => {
+    isApplyingRemoteRef.current = true;
+    if (remoteLockTimeoutRef.current) {
+      clearTimeout(remoteLockTimeoutRef.current);
+    }
+    remoteLockTimeoutRef.current = setTimeout(() => {
+      isApplyingRemoteRef.current = false;
+    }, durationMs);
+  }, []);
+
+  // 1. Do NOT set autoplay: 1 in opts (it causes black screens when browser blocks unmuted autoplay).
+  // Instead, control playback cleanly inside onReady.
   const opts: YouTubeProps["opts"] = useMemo(
     () => ({
       height: "100%",
       width: "100%",
       playerVars: {
-        autoplay: 1,
+        autoplay: 0,
         controls: 1,
         modestbranding: 1,
         iv_load_policy: 3,
         cc_load_policy: 0,
         fs: 1,
-        playsinline: 1, // Crucial for mobile: prevents iOS from forcing fullscreen automatically
+        playsinline: 1,
       },
     }),
     [],
   );
 
-  const pushLocalTime = useCallback((time: number) => {
-    ignoreRemoteUntilRef.current = Date.now() + 1500;
+  const pushLocalState = useCallback((playing: boolean, time: number) => {
     lastSentTimeRef.current = time;
     lastPlayerTimeRef.current = time;
-    updateTimeStamp(roomidRef.current, time);
+    isPlayingRef.current = playing;
+    syncPlayerState(roomidRef.current, playing, time);
   }, []);
 
   // 2. Dynamically control play/pause whenever DB `isPlaying` changes
@@ -80,48 +95,65 @@ export default function PersonalYouTubePlayer({
     if (!playerRef.current || !isReadyRef.current) return;
     try {
       const internalState = playerRef.current.getPlayerState();
-      if (isPlaying && internalState !== PLAYER_STATES.PLAYING) {
-        ignoreRemoteUntilRef.current = Date.now() + 1000;
-        playerRef.current.playVideo();
-      } else if (!isPlaying && internalState === PLAYER_STATES.PLAYING) {
-        ignoreRemoteUntilRef.current = Date.now() + 1000;
-        playerRef.current.pauseVideo();
-      }
-    } catch {
-      // Player not ready yet
-    }
-  }, [isPlaying]);
 
-  // 3. Receive remote timestamp updates safely (1.0s max drift)
-  useEffect(() => {
-    if (!playerRef.current || !isReadyRef.current || startTime < 0) return;
-    if (Date.now() < ignoreRemoteUntilRef.current) return;
-    if (Math.abs(startTime - lastSentTimeRef.current) < 0.8) return;
-
-    try {
-      const currentPlayerTime = playerRef.current.getCurrentTime();
-      const drift = Math.abs(currentPlayerTime - startTime);
-
-      if (drift > MAX_ALLOWED_DRIFT) {
-        ignoreRemoteUntilRef.current = Date.now() + 1500;
-        lastPlayerTimeRef.current = startTime;
-
-        if (isPlayingRef.current) {
-          playerRef.current.seekTo(startTime, true);
-        } else {
-          // If paused in DB, cue at the new timestamp so it doesn't auto-play or black-screen
-          playerRef.current.cueVideoById({
-            videoId: videoIdRef.current,
-            startSeconds: startTime,
-          });
+      if (isPlaying) {
+        if (
+          internalState !== PLAYER_STATES.PLAYING &&
+          internalState !== PLAYER_STATES.BUFFERING
+        ) {
+          lockRemoteAction(1000);
+          playerRef.current.playVideo();
+        }
+      } else {
+        if (
+          internalState === PLAYER_STATES.PLAYING ||
+          internalState === PLAYER_STATES.BUFFERING
+        ) {
+          lockRemoteAction(1000);
+          playerRef.current.pauseVideo();
         }
       }
     } catch {
       // Player not ready yet
     }
-  }, [startTime]);
+  }, [isPlaying, lockRemoteAction]);
 
-  // 4. Fix Black Screen on Ready + Respect DB `isPlaying` on Refresh
+  // 3. Receive remote timestamp updates safely
+  useEffect(() => {
+    if (!playerRef.current || !isReadyRef.current || startTime < 0) return;
+    if (Math.abs(startTime - lastSentTimeRef.current) < 0.8) return;
+
+    try {
+      const currentPlayerTime = playerRef.current.getCurrentTime() || 0;
+      const drift = Math.abs(currentPlayerTime - startTime);
+
+      if (drift > MAX_ALLOWED_DRIFT) {
+        lockRemoteAction(1200);
+        lastPlayerTimeRef.current = startTime;
+
+        if (isPlayingRef.current) {
+          playerRef.current.seekTo(startTime, true);
+          playerRef.current.playVideo();
+        } else {
+          const state = playerRef.current.getPlayerState();
+          // If the video hasn't started yet (-1 or 5), cueVideoById prevents a black screen
+          if (state === PLAYER_STATES.UNSTARTED || state === PLAYER_STATES.CUED) {
+            playerRef.current.cueVideoById({
+              videoId: videoIdRef.current,
+              startSeconds: startTime,
+            });
+          } else {
+            playerRef.current.seekTo(startTime, true);
+            playerRef.current.pauseVideo();
+          }
+        }
+      }
+    } catch {
+      // Player not ready yet
+    }
+  }, [startTime, lockRemoteAction]);
+
+  // 4. Fix Black Screen on Ready
   const onReady: YouTubeProps["onReady"] = useCallback(
     (event: YouTubeEvent) => {
       const player = event.target;
@@ -131,12 +163,16 @@ export default function PersonalYouTubePlayer({
       const initialStart = startTimeRef.current > 0 ? startTimeRef.current : 0;
       lastPlayerTimeRef.current = initialStart;
 
+      lockRemoteAction(1200);
+
       if (isPlayingRef.current) {
         if (initialStart > 0) {
           player.seekTo(initialStart, true);
         }
         player.playVideo();
       } else {
+        // Cue the video instead of calling pauseVideo() on an unstarted player
+        // This ensures the video thumbnail/frame shows instead of a black box
         if (initialStart > 0) {
           player.cueVideoById({
             videoId: videoIdRef.current,
@@ -145,66 +181,74 @@ export default function PersonalYouTubePlayer({
         }
       }
     },
-    [],
+    [lockRemoteAction],
   );
 
-  // 5. State change handler (updates ONLY on Play, Pause, or Seek/Jump)
+  // 5. State change handler
   const onStateChange: YouTubeProps["onStateChange"] = useCallback(
     (event: YouTubeEvent) => {
       const player = event.target;
       const currentState = event.data;
-      const currentTime = player.getCurrentTime();
+      const currentTime = player.getCurrentTime() || 0;
 
-      if (Date.now() < ignoreRemoteUntilRef.current) {
+      if (isApplyingRemoteRef.current) {
         lastPlayerTimeRef.current = currentTime;
+
+        // If the player started playing while the DB says paused, force pause it
+        if (currentState === PLAYER_STATES.PLAYING && !isPlayingRef.current) {
+          player.pauseVideo();
+        }
         return;
       }
 
       if (currentState === PLAYER_STATES.PLAYING) {
         if (!isPlayingRef.current) {
-          updateIspalying(roomidRef.current, true);
-          pushLocalTime(currentTime);
+          pushLocalState(true, currentTime);
         } else if (
           Math.abs(currentTime - lastPlayerTimeRef.current) > MAX_ALLOWED_DRIFT
         ) {
-          // Caught a seek/jump that finished and resumed playing
-          pushLocalTime(currentTime);
+          lastSentTimeRef.current = currentTime;
+          lastPlayerTimeRef.current = currentTime;
+          updateTimeStamp(roomidRef.current, currentTime);
         }
+        lastPlayerTimeRef.current = currentTime;
       } else if (currentState === PLAYER_STATES.PAUSED) {
         if (isPlayingRef.current) {
-          updateIspalying(roomidRef.current, false);
-        }
-        if (
+          pushLocalState(false, currentTime);
+        } else if (
           Math.abs(currentTime - lastPlayerTimeRef.current) > MAX_ALLOWED_DRIFT
         ) {
-          pushLocalTime(currentTime);
+          lastSentTimeRef.current = currentTime;
+          lastPlayerTimeRef.current = currentTime;
+          updateTimeStamp(roomidRef.current, currentTime);
         }
-      } else if (currentState === PLAYER_STATES.BUFFERING) {
-        if (Math.abs(currentTime - lastPlayerTimeRef.current) > 1.2) {
-          pushLocalTime(currentTime);
-        }
+        lastPlayerTimeRef.current = currentTime;
       }
     },
-    [pushLocalTime],
+    [pushLocalState],
   );
 
-  // Responsive fallback when no videoId is present
+  // Classic 16:9 padding-top trick (pt-[56.25%]) guarantees the box NEVER collapses to 0 height in flex/grid layouts
   if (!videoId) {
     return (
-      <div className="bg-black w-full max-w-4xl mx-auto aspect-video rounded-xl md:rounded-2xl shadow-lg" />
+      <div className="w-full max-w-2xl mx-auto">
+        <div className="relative w-full pt-[56.25%] bg-black rounded-xl md:rounded-2xl shadow-lg" />
+      </div>
     );
   }
 
   return (
-    <div className="relative bg-black w-full max-w-4xl mx-auto aspect-video overflow-hidden rounded-xl md:rounded-2xl shadow-lg">
-      <YouTube
-        videoId={videoId}
-        opts={opts}
-        onReady={onReady}
-        onStateChange={onStateChange}
-        className="absolute inset-0 w-full h-full"
-        iframeClassName="w-full h-full border-0"
-      />
+    <div className="w-full max-w-2xl mx-auto">
+      <div className="relative w-full pt-[56.25%] bg-black overflow-hidden rounded-xl md:rounded-2xl shadow-lg">
+        <YouTube
+          videoId={videoId}
+          opts={opts}
+          onReady={onReady}
+          onStateChange={onStateChange}
+          className="absolute top-0 left-0 w-full h-full"
+          iframeClassName="w-full h-full border-0"
+        />
+      </div>
     </div>
   );
 }
