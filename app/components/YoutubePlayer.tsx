@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useEffect, useCallback } from "react";
+import { useMemo, useRef, useEffect, useCallback, useState } from "react";
 import YouTube, {
   YouTubeProps,
   YouTubePlayer,
@@ -18,6 +18,8 @@ const PLAYER_STATES = {
 };
 
 const MAX_ALLOWED_DRIFT = 1.5;
+const REMOTE_LOCK_FALLBACK_MS = 1000; // safety net only; normally cleared by the state event
+const TAP_CHECK_MS = 1500;
 
 export default function PersonalYouTubePlayer({
   roomid,
@@ -32,8 +34,9 @@ export default function PersonalYouTubePlayer({
 }) {
   const playerRef = useRef<YouTubePlayer | null>(null);
   const isReadyRef = useRef<boolean>(false);
+  const [needsTap, setNeedsTap] = useState(false);
 
-  // Refs to always read latest database props inside stable callbacks
+  // Latest props, read inside stable callbacks
   const startTimeRef = useRef(startTime);
   startTimeRef.current = startTime;
 
@@ -54,7 +57,9 @@ export default function PersonalYouTubePlayer({
   );
   const lastSentTimeRef = useRef<number>(-1);
 
-  const lockRemoteAction = useCallback((durationMs = 1000) => {
+  // Set while we apply a remote change. Cleared by the matching state event
+  // (see onStateChange). The timer is only a fallback if no event arrives.
+  const lockRemoteAction = useCallback((durationMs = REMOTE_LOCK_FALLBACK_MS) => {
     isApplyingRemoteRef.current = true;
     if (remoteLockTimeoutRef.current) {
       clearTimeout(remoteLockTimeoutRef.current);
@@ -64,8 +69,25 @@ export default function PersonalYouTubePlayer({
     }, durationMs);
   }, []);
 
-  // 1. Do NOT set autoplay: 1 in opts (it causes black screens when browser blocks unmuted autoplay).
-  // Instead, control playback cleanly inside onReady.
+  const unlockRemoteAction = useCallback(() => {
+    isApplyingRemoteRef.current = false;
+    if (remoteLockTimeoutRef.current) {
+      clearTimeout(remoteLockTimeoutRef.current);
+      remoteLockTimeoutRef.current = null;
+    }
+  }, []);
+
+  // Clear pending timers on unmount
+  useEffect(() => {
+    return () => {
+      if (remoteLockTimeoutRef.current) {
+        clearTimeout(remoteLockTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  // No autoplay: 1 in opts. Browsers block unmuted autoplay and cause black
+  // screens. Playback is started cleanly in onReady and by the tap fallback.
   const opts: YouTubeProps["opts"] = useMemo(
     () => ({
       height: "100%",
@@ -90,7 +112,7 @@ export default function PersonalYouTubePlayer({
     syncPlayerState(roomidRef.current, playing, time);
   }, []);
 
-  // 2. Dynamically control play/pause whenever DB `isPlaying` changes
+  // 1. Apply play/pause when the database isPlaying changes
   useEffect(() => {
     if (!playerRef.current || !isReadyRef.current) return;
     try {
@@ -101,7 +123,7 @@ export default function PersonalYouTubePlayer({
           internalState !== PLAYER_STATES.PLAYING &&
           internalState !== PLAYER_STATES.BUFFERING
         ) {
-          lockRemoteAction(1000);
+          lockRemoteAction();
           playerRef.current.playVideo();
         }
       } else {
@@ -109,7 +131,7 @@ export default function PersonalYouTubePlayer({
           internalState === PLAYER_STATES.PLAYING ||
           internalState === PLAYER_STATES.BUFFERING
         ) {
-          lockRemoteAction(1000);
+          lockRemoteAction();
           playerRef.current.pauseVideo();
         }
       }
@@ -118,9 +140,10 @@ export default function PersonalYouTubePlayer({
     }
   }, [isPlaying, lockRemoteAction]);
 
-  // 3. Receive remote timestamp updates safely
+  // 2. Apply remote timestamp updates
   useEffect(() => {
     if (!playerRef.current || !isReadyRef.current || startTime < 0) return;
+    // Our own echo: we already have this position
     if (Math.abs(startTime - lastSentTimeRef.current) < 0.8) return;
 
     try {
@@ -128,7 +151,7 @@ export default function PersonalYouTubePlayer({
       const drift = Math.abs(currentPlayerTime - startTime);
 
       if (drift > MAX_ALLOWED_DRIFT) {
-        lockRemoteAction(1200);
+        lockRemoteAction();
         lastPlayerTimeRef.current = startTime;
 
         if (isPlayingRef.current) {
@@ -136,8 +159,11 @@ export default function PersonalYouTubePlayer({
           playerRef.current.playVideo();
         } else {
           const state = playerRef.current.getPlayerState();
-          // If the video hasn't started yet (-1 or 5), cueVideoById prevents a black screen
-          if (state === PLAYER_STATES.UNSTARTED || state === PLAYER_STATES.CUED) {
+          // Not started yet: cue so the thumbnail shows instead of a black box
+          if (
+            state === PLAYER_STATES.UNSTARTED ||
+            state === PLAYER_STATES.CUED
+          ) {
             playerRef.current.cueVideoById({
               videoId: videoIdRef.current,
               startSeconds: startTime,
@@ -153,7 +179,7 @@ export default function PersonalYouTubePlayer({
     }
   }, [startTime, lockRemoteAction]);
 
-  // 4. Fix Black Screen on Ready
+  // 3. Ready: start or cue, then offer a tap if autoplay was blocked
   const onReady: YouTubeProps["onReady"] = useCallback(
     (event: YouTubeEvent) => {
       const player = event.target;
@@ -162,39 +188,57 @@ export default function PersonalYouTubePlayer({
 
       const initialStart = startTimeRef.current > 0 ? startTimeRef.current : 0;
       lastPlayerTimeRef.current = initialStart;
-
-      lockRemoteAction(1200);
+      lockRemoteAction();
 
       if (isPlayingRef.current) {
         if (initialStart > 0) {
           player.seekTo(initialStart, true);
         }
         player.playVideo();
-      } else {
-        // Cue the video instead of calling pauseVideo() on an unstarted player
-        // This ensures the video thumbnail/frame shows instead of a black box
-        if (initialStart > 0) {
-          player.cueVideoById({
-            videoId: videoIdRef.current,
-            startSeconds: initialStart,
-          });
-        }
+
+        // If it didn't start, autoplay was probably blocked. Show a tap target.
+        setTimeout(() => {
+          const p = playerRef.current;
+          if (!p || !isPlayingRef.current) return;
+          const st = p.getPlayerState();
+          if (st !== PLAYER_STATES.PLAYING && st !== PLAYER_STATES.BUFFERING) {
+            setNeedsTap(true);
+          }
+        }, TAP_CHECK_MS);
+      } else if (initialStart > 0) {
+        player.cueVideoById({
+          videoId: videoIdRef.current,
+          startSeconds: initialStart,
+        });
       }
     },
     [lockRemoteAction],
   );
 
-  // 5. State change handler
+  // 4. State changes: detect real user actions, ignore our own echoes
   const onStateChange: YouTubeProps["onStateChange"] = useCallback(
     (event: YouTubeEvent) => {
       const player = event.target;
       const currentState = event.data;
       const currentTime = player.getCurrentTime() || 0;
 
+      if (currentState === PLAYER_STATES.PLAYING) setNeedsTap(false);
+
+      // Only PLAYING and PAUSED express intent. Ignore BUFFERING, CUED, UNSTARTED.
+      if (
+        currentState !== PLAYER_STATES.PLAYING &&
+        currentState !== PLAYER_STATES.PAUSED
+      ) {
+        return;
+      }
+
       if (isApplyingRemoteRef.current) {
+        // This is the echo of our own programmatic call. Clear the lock now
+        // instead of waiting for a timer.
+        unlockRemoteAction();
         lastPlayerTimeRef.current = currentTime;
 
-        // If the player started playing while the DB says paused, force pause it
+        // Started playing while the room says paused: force it back
         if (currentState === PLAYER_STATES.PLAYING && !isPlayingRef.current) {
           player.pauseVideo();
         }
@@ -212,7 +256,8 @@ export default function PersonalYouTubePlayer({
           updateTimeStamp(roomidRef.current, currentTime);
         }
         lastPlayerTimeRef.current = currentTime;
-      } else if (currentState === PLAYER_STATES.PAUSED) {
+      } else {
+        // PAUSED
         if (isPlayingRef.current) {
           pushLocalState(false, currentTime);
         } else if (
@@ -225,10 +270,19 @@ export default function PersonalYouTubePlayer({
         lastPlayerTimeRef.current = currentTime;
       }
     },
-    [pushLocalState],
+    [pushLocalState, unlockRemoteAction],
   );
 
-  // Classic 16:9 padding-top trick (pt-[56.25%]) guarantees the box NEVER collapses to 0 height in flex/grid layouts
+  const handleTap = useCallback(() => {
+    const p = playerRef.current;
+    if (!p) return;
+    setNeedsTap(false);
+    lockRemoteAction();
+    if (startTimeRef.current > 0) p.seekTo(startTimeRef.current, true);
+    p.playVideo();
+  }, [lockRemoteAction]);
+
+  // 16:9 padding trick keeps the box from collapsing to 0 height
   if (!videoId) {
     return (
       <div className="w-full max-w-2xl mx-auto">
@@ -248,6 +302,16 @@ export default function PersonalYouTubePlayer({
           className="absolute top-0 left-0 w-full h-full"
           iframeClassName="w-full h-full border-0"
         />
+
+        {needsTap && (
+          <button
+            type="button"
+            onClick={handleTap}
+            className="absolute inset-0 z-10 flex items-center justify-center bg-black/60 text-base font-medium text-white"
+          >
+            Tap to sync playback
+          </button>
+        )}
       </div>
     </div>
   );

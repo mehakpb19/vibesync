@@ -104,7 +104,7 @@ export default function Rompage({ roomid }: { roomid: string }) {
           <button
             onClick={async () => {
               await navigator.clipboard.writeText(roomid);
-              toast.success("Wow so easy!");
+              toast.success("RoomId copyed!!");
             }}
             className="sm: p-2 bg-gradient-to-r active:-translate-y-0 hover:-translate-y-1.5 duration-500 to-[#216af2] via-[#4097e9] from-[#23838a] flex text-1xl items-center rounded-lg -translate-y-1 h-fit"
           >
