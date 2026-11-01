@@ -8,7 +8,7 @@ export default function Contorls({roomId}:{roomId:string}) {
   const [tab, setTab] = useState("Youtube");
 
   return (
-    <div className="h-90 flex flex-col overflow-clip bg-slate-800/80 w-100 rounded-2xl">
+    <div className="h-90 flex flex-col overflow-clip bg-slate-800/80 md:w-100 w-full rounded-2xl">
       {/* button */}
       <div className=" relative w-full flex flex-wrap p-1 text-sm bg-[#0F172A] rounded-lg shadow-[0_0_0_1px_rgba(0,0,0,0.06)] box-border">
         <label className="flex-1 text-center cursor-pointer">
@@ -42,7 +42,7 @@ export default function Contorls({roomId}:{roomId:string}) {
       </div>
 
       {/* Content */}
-      <div className="min-h-0 grow">
+      <div className="min-h-0 grow ">
         {(tab == "Youtube" && <YtSearch roomId={roomId} />) ||
           (tab == "Chat" && <Chat roomId={roomId}/>)}
       </div>
