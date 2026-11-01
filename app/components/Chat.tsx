@@ -4,52 +4,53 @@ import { useEffect, useRef, useState } from "react";
 import { IoIosSend } from "react-icons/io";
 import { Getmsg, Postmsg } from "../Actions/ChatAction";
 
+interface Message {
+  sender: string;
+  msg: string;
+}
+
 export default function Chat({ roomId }: { roomId: string }) {
-  const { dataObject } = Getmsg(roomId);
-  
-  // Safely get user from localStorage ensuring it works with Next.js SSR
+  const { dataObject } = Getmsg(roomId) as { dataObject: Record<string, Message> | null };
+
   const [user, setUser] = useState<string>("");
   useEffect(() => {
     setUser(localStorage.getItem("user") ?? "");
   }, []);
 
   const [input, setInput] = useState("");
-  
-  // 1. Explicitly type the ref for TypeScript
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // 2. Scroll into view whenever dataObject updates
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [dataObject]);
+
+  const handleSend = () => {
+    const trimmed = input.trim();
+    if (!trimmed || !user) return;
+    Postmsg(trimmed, roomId, user);
+    setInput("");
+  };
 
   return (
     <div className="flex h-full w-full flex-col overflow-hidden">
       <div className="flex-1 overflow-y-auto gap-3 flex flex-col w-full px-3 py-2 [&::-webkit-scrollbar]:w-0">
         {dataObject &&
           Object.entries(dataObject).map(([key, value]) => {
-            if (value.sender === user) {
-              return (
-                <div
-                  key={key}
-                  className="relative self-end bg-linear-to-r from-[#1a51b8] via-[#22417c] to-[#276394] rounded-3xl w-fit h-fit px-2 py-1 text-white"
-                >
-                  {value.msg}
-                </div>
-              );
-            } else {
-              return (
-                <div
-                  key={key}
-                  className="relative self-start bg-linear-to-r from-[#1a51b8] via-[#22417c] to-[#276394] rounded-3xl w-fit h-fit px-2 py-1 text-white"
-                >
-                  {value.msg}
-                </div>
-              );
-            }
+            const isOwnMessage = value.sender === user;
+            return (
+              <div
+                key={key}
+                className={`relative rounded-3xl w-fit max-w-[75%] break-words h-fit px-3 py-1.5 text-white ${
+                  isOwnMessage
+                    ? "self-end bg-linear-to-r from-[#1a51b8] via-[#22417c] to-[#276394]"
+                    : "self-start bg-[#2A3B5C]"
+                }`}
+              >
+                {value.msg}
+              </div>
+            );
           })}
 
-        {/* 3. The anchor element that forces the view down */}
         <div ref={messagesEndRef} />
       </div>
 
@@ -59,22 +60,13 @@ export default function Chat({ roomId }: { roomId: string }) {
           type="text"
           value={input}
           placeholder="Send a message..."
-          onChange={(e) => {
-            setInput(e.target.value);
-          }}
+          onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter" && input.trim() !== "") {
-              Postmsg(input, roomId, user);
-              setInput("");
-            }
+            if (e.key === "Enter") handleSend();
           }}
         />
         <button
-          onClick={() => {
-            if (input.trim() === "") return;
-            Postmsg(input, roomId, user);
-            setInput("");
-          }}
+          onClick={handleSend}
           className="flex absolute right-0 hover:scale-105 active:scale-110 duration-200 outline-none px-3 gap-1 transition-transform h-full items-center bg-cyan-500 rounded-2xl"
         >
           <IoIosSend size={20} />
